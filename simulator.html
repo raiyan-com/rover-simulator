@@ -1,0 +1,1790 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Rover Simulator</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik:wght@500;700&family=Nunito+Sans:wght@400;700&family=JetBrains+Mono:wght@400;700&display=swap">
+<style>
+  /* One screen: bar on top, code + output on the left, the floor on the right. */
+  :root {
+    --bg: #E9EDF3; --panel: #FAFBFD; --ink: #16213A; --muted: #56617A; --line: #D3DAE5;
+    --accent: #E39A2D; --on-accent: #16213A;
+    --floor: #F3F5F8; --grid: #DDE3EC; --grid-strong: #BCC7D6; --tape: #2E78CF; --trail: #E39A2D;
+    --code-bg: #101A30; --code-fg: #E8EDF7; --code-muted: #7F8BA6; --gutter: #0B1324;
+    --ok: #17784A; --ok-bg: #DDF3E7; --err: #B3261E; --err-bg: #FBE3E1;
+    --font-display: 'Rubik', 'Trebuchet MS', Arial, sans-serif;
+    --font-body: 'Nunito Sans', 'Segoe UI', Verdana, sans-serif;
+    --font-code: 'JetBrains Mono', Consolas, 'Courier New', monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0D1422; --panel: #152036; --ink: #E8EDF7; --muted: #9DA9C0; --line: #26344F;
+      --accent: #F0A940; --on-accent: #16213A;
+      --floor: #111B2E; --grid: #1C2940; --grid-strong: #2C3D5C; --tape: #5AA2F0; --trail: #F0A940;
+      --ok: #5BD49A; --ok-bg: #12352A; --err: #FF8A80; --err-bg: #3A1A1D;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0D1422; --panel: #152036; --ink: #E8EDF7; --muted: #9DA9C0; --line: #26344F;
+    --accent: #F0A940; --on-accent: #16213A;
+    --floor: #111B2E; --grid: #1C2940; --grid-strong: #2C3D5C; --tape: #5AA2F0; --trail: #F0A940;
+    --ok: #5BD49A; --ok-bg: #12352A; --err: #FF8A80; --err-bg: #3A1A1D;
+    color-scheme: dark;
+  }
+
+  html, body { height: 100%; background: var(--bg); color: var(--ink); }
+  body { margin: 0; font-family: var(--font-body); font-size: 15px; line-height: 1.4; }
+  .app {
+    height: 100%; box-sizing: border-box; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 12px;
+    padding-block: 12px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  h1 { font-family: var(--font-display); font-weight: 700; font-size: 1.3rem; margin: 0 12px 0 0; }
+  .spacer { flex: 1; }
+  button {
+    font: inherit; font-weight: 700; color: var(--ink); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 10px; padding: 7px 14px; cursor: pointer;
+  }
+  button:hover { border-color: var(--muted); }
+  button:focus-visible, textarea:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  button.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); padding: 7px 20px; }
+  button.on { border-color: var(--tape); color: var(--tape); }
+
+  .main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; min-height: 0; }
+  .left { display: grid; grid-template-rows: minmax(0, 3fr) minmax(0, 2fr); gap: 12px; min-height: 0; min-width: 0; }
+
+  .editor { display: flex; background: var(--code-bg); border-radius: 12px; overflow: hidden; min-height: 0; min-width: 0; }
+  .gutter {
+    background: var(--gutter); color: var(--code-muted); font-family: var(--font-code); font-size: 13px; line-height: 22px;
+    padding: 12px 8px 12px 10px; text-align: right; user-select: none; overflow: hidden; min-width: 40px;
+  }
+  .gutter div { height: 22px; }
+  .gutter .bad { color: #FFFFFF; background: #B3261E; border-radius: 4px; padding: 0 4px; }
+  textarea#code {
+    flex: 1; min-width: 0; resize: none; border: 0; outline: none; background: transparent; color: var(--code-fg);
+    font-family: var(--font-code); font-size: 13px; line-height: 22px; padding: 12px; white-space: pre; overflow: auto; tab-size: 4;
+    caret-color: #F0A940;
+  }
+
+  .output { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+  .terminal {
+    flex: 1; min-height: 0; background: #0A0F1A; color: #E8EDF7; border-radius: 12px; padding: 12px 14px; overflow: auto;
+    font-family: var(--font-code); font-size: 14px; line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+  }
+  .terminal .note { color: #9DB0D0; font-style: italic; }
+  .terminal .err { color: #FF8A80; cursor: pointer; }
+  .terminal .done { color: #7F8BA6; }
+  .hint { background: var(--err-bg); color: var(--ink); border-radius: 10px; padding: 8px 12px; }
+  .hint b { color: var(--err); }
+
+  .floor { position: relative; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); background: var(--floor); min-height: 0; min-width: 0; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .chip {
+    position: absolute; top: 10px; left: 10px; font-weight: 700; font-size: 0.9rem; border-radius: 999px; padding: 6px 12px;
+  }
+  .chip.ok { background: var(--ok-bg); color: var(--ok); }
+  .chip.miss { background: var(--err-bg); color: var(--err); }
+
+  @media (max-width: 800px) {
+    html, body { height: auto; }
+    .app { height: auto; }
+    .main { grid-template-columns: minmax(0, 1fr); }
+    .left { grid-template-rows: 340px 200px; }
+    .floor { height: 420px; }
+  }
+</style>
+
+<div class="app">
+  <div class="bar">
+    <h1>Rover Simulator</h1>
+    <button class="primary" id="run" type="button">▶ Run</button>
+    <button id="stop" type="button">■ Stop</button>
+    <button id="setup" type="button">Setup lines</button>
+    <span class="spacer"></span>
+    <button id="planned" type="button">Planned path</button>
+    <button id="random" type="button">Random path</button>
+    <button id="solution" type="button">Show solution</button>
+  </div>
+  <div class="main">
+    <div class="left">
+      <div class="editor">
+        <div class="gutter" id="gutter" aria-hidden="true"></div>
+        <textarea id="code" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Python code"></textarea>
+      </div>
+      <div class="output">
+        <div class="terminal" id="terminal" role="log" aria-live="polite" aria-label="Output"></div>
+        <div class="hint" id="hint" hidden><b id="hint-title">Hint</b> <span id="hint-text"></span></div>
+      </div>
+    </div>
+    <div class="floor" id="floor">
+      <canvas id="canvas" aria-label="The rover on the floor, seen from above"></canvas>
+      <span class="chip" id="chip" hidden></span>
+    </div>
+  </div>
+</div>
+
+<script>
+/* Rover Simulator core: a small Python interpreter for the beginner subset
+   used in class, plus a model of a Pybricks SPIKE rover. Runs a program to
+   completion and returns a timeline of moves, prints and errors. */
+(function (root) {
+  'use strict';
+
+  // ---------------------------------------------------------------- errors
+  class PyError extends Error {
+    constructor(type, msg, line, hint) {
+      super(msg);
+      this.type = type; this.msg = msg; this.line = line; this.hint = hint || null;
+      this.trace = null;
+    }
+  }
+  class BreakSig {}
+  class ContinueSig {}
+  class ReturnSig { constructor(v) { this.v = v; } }
+
+  // ---------------------------------------------------------------- values
+  class PyFloat { constructor(v) { this.v = v; } }
+
+  function typeName(x) {
+    if (x === null || x === undefined) return 'NoneType';
+    if (typeof x === 'boolean') return 'bool';
+    if (typeof x === 'number') return 'int';
+    if (x instanceof PyFloat) return 'float';
+    if (typeof x === 'string') return 'str';
+    if (Array.isArray(x)) return x.isTuple ? 'tuple' : 'list';
+    if (x && x.pyType) return x.pyType;
+    return 'object';
+  }
+  function isNum(x) { return typeof x === 'number' || typeof x === 'boolean' || x instanceof PyFloat; }
+  function num(x) { return x instanceof PyFloat ? x.v : x === true ? 1 : x === false ? 0 : x; }
+
+  function floatStr(v) {
+    if (Number.isNaN(v)) return 'nan';
+    if (!Number.isFinite(v)) return v > 0 ? 'inf' : '-inf';
+    // The hub uses single-precision floats: about 7 significant digits.
+    let s = Number(v.toPrecision(7)).toString();
+    if (!/[.e]/.test(s)) s += '.0';
+    return s;
+  }
+  function str(x) {
+    if (x === null || x === undefined) return 'None';
+    if (x === true) return 'True';
+    if (x === false) return 'False';
+    if (typeof x === 'number') return String(x);
+    if (x instanceof PyFloat) return floatStr(x.v);
+    if (typeof x === 'string') return x;
+    if (Array.isArray(x)) {
+      const inner = x.map(repr).join(', ');
+      return x.isTuple ? '(' + inner + (x.length === 1 ? ',' : '') + ')' : '[' + inner + ']';
+    }
+    if (x.pyStr) return x.pyStr();
+    return '<' + typeName(x) + '>';
+  }
+  function repr(x) {
+    if (typeof x === 'string') return "'" + x.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n') + "'";
+    return str(x);
+  }
+  function truthy(x) {
+    if (x === null || x === undefined || x === false) return false;
+    if (typeof x === 'number') return x !== 0;
+    if (x instanceof PyFloat) return x.v !== 0;
+    if (typeof x === 'string' || Array.isArray(x)) return x.length > 0;
+    if (x.pyType === 'range') return x.len() > 0;
+    return true;
+  }
+
+  // ---------------------------------------------------------------- tokenizer
+  const KEYWORDS = new Set(['False', 'None', 'True', 'and', 'as', 'assert', 'async', 'await', 'break', 'class',
+    'continue', 'def', 'del', 'elif', 'else', 'except', 'finally', 'for', 'from', 'global', 'if', 'import', 'in',
+    'is', 'lambda', 'nonlocal', 'not', 'or', 'pass', 'raise', 'return', 'try', 'while', 'with', 'yield']);
+  const UNSUPPORTED = new Set(['class', 'try', 'except', 'finally', 'raise', 'with', 'lambda', 'yield', 'async',
+    'await', 'global', 'nonlocal', 'del', 'assert', 'is']);
+  const OPS3 = ['**=', '//='];
+  const OPS2 = ['**', '//', '==', '!=', '<=', '>=', '+=', '-=', '*=', '/=', '%='];
+  const OPS1 = '()[]{},:.+-*/%=<>';
+
+  function tokenize(src) {
+    const lines = src.replace(/\r\n?/g, '\n').split('\n');
+    const toks = [];
+    const indents = [0];
+    const brackets = [];
+    let joining = false; // inside brackets or after a backslash
+    for (let li = 0; li < lines.length; li++) {
+      const lineNo = li + 1;
+      const line = lines[li];
+      let i = 0;
+      if (!joining) {
+        let col = 0;
+        while (i < line.length && (line[i] === ' ' || line[i] === '\t')) { col += line[i] === '\t' ? 8 - (col % 8) : 1; i++; }
+        if (i >= line.length || line[i] === '#') continue;
+        const cur = indents[indents.length - 1];
+        if (col > cur) { indents.push(col); toks.push({ t: 'INDENT', line: lineNo }); }
+        else if (col < cur) {
+          while (col < indents[indents.length - 1]) { indents.pop(); toks.push({ t: 'DEDENT', line: lineNo }); }
+          if (col !== indents[indents.length - 1]) {
+            throw new PyError('IndentationError', "unindent doesn't match any outer indent level", lineNo,
+              'Line this up with the lines above it. Use 4 spaces for each level.');
+          }
+        }
+      }
+      joining = false;
+      while (i < line.length) {
+        const c = line[i];
+        if (c === ' ' || c === '\t') { i++; continue; }
+        if (c === '#') break;
+        if (c === '\\' && line.slice(i + 1).trim() === '') { joining = true; i = line.length; break; }
+        if (/[0-9]/.test(c) || (c === '.' && /[0-9]/.test(line[i + 1] || ''))) {
+          const m = /^(\d+\.\d*|\.\d+|\d+)([eE][+-]?\d+)?/.exec(line.slice(i));
+          const text = m[0];
+          i += text.length;
+          if (/[A-Za-z_]/.test(line[i] || '')) throw new PyError('SyntaxError', 'invalid syntax', lineNo, 'A number is stuck to letters here.');
+          const isF = /[.eE]/.test(text);
+          toks.push({ t: 'NUM', v: isF ? new PyFloat(parseFloat(text)) : parseInt(text, 10), line: lineNo });
+          continue;
+        }
+        if (/[A-Za-z_]/.test(c)) {
+          const m = /^[A-Za-z_][A-Za-z0-9_]*/.exec(line.slice(i));
+          const word = m[0];
+          const after = line[i + word.length];
+          if ((after === '"' || after === "'") && /^[fFrRbBuU]{1,2}$/.test(word)) {
+            if (/[fF]/.test(word)) throw new PyError('SyntaxError', 'invalid syntax', lineNo, 'f-strings work on the hub but not in this simulator. Use print("Distance:", d) instead.');
+            i += word.length;
+            continue; // r"", b"", u"": read the string next
+          }
+          i += word.length;
+          toks.push({ t: KEYWORDS.has(word) ? 'KW' : 'NAME', v: word, line: lineNo });
+          continue;
+        }
+        if (c === '"' || c === "'") {
+          if (line.startsWith(c.repeat(3), i)) throw new PyError('SyntaxError', 'invalid syntax', lineNo, 'Triple-quoted text isn’t supported in this simulator.');
+          let j = i + 1, s = '';
+          while (j < line.length && line[j] !== c) {
+            if (line[j] === '\\' && j + 1 < line.length) {
+              const e = line[j + 1];
+              s += e === 'n' ? '\n' : e === 't' ? '\t' : e;
+              j += 2;
+            } else s += line[j++];
+          }
+          if (j >= line.length) throw new PyError('SyntaxError', 'invalid syntax', lineNo, 'This text is missing its closing quote ' + c + '.');
+          toks.push({ t: 'STR', v: s, line: lineNo });
+          i = j + 1;
+          continue;
+        }
+        if ('“”‘’'.includes(c)) throw new PyError('SyntaxError', 'invalid syntax', lineNo, 'Curly quotes “ ” came from copying text. Type straight quotes " instead.');
+        if (c === '−' || c === '–') throw new PyError('SyntaxError', 'invalid syntax', lineNo, 'That dash came from copying text. Type a normal minus sign - instead.');
+        if (c === '×') throw new PyError('SyntaxError', 'invalid syntax', lineNo, 'Python multiplies with * not ×.');
+        if (c === '÷') throw new PyError('SyntaxError', 'invalid syntax', lineNo, 'Python divides with / not ÷.');
+        const three = line.substr(i, 3), two = line.substr(i, 2);
+        if (OPS3.includes(three)) { toks.push({ t: 'OP', v: three, line: lineNo }); i += 3; continue; }
+        if (OPS2.includes(two)) { toks.push({ t: 'OP', v: two, line: lineNo }); i += 2; continue; }
+        if (OPS1.includes(c)) {
+          if ('([{'.includes(c)) brackets.push({ c, line: lineNo });
+          if (')]}'.includes(c)) {
+            const open = brackets.pop();
+            const want = { ')': '(', ']': '[', '}': '{' }[c];
+            if (!open || open.c !== want) throw new PyError('SyntaxError', 'invalid syntax', lineNo, 'This ' + c + ' doesn’t have a matching ' + want + '.');
+          }
+          toks.push({ t: 'OP', v: c, line: lineNo });
+          i++;
+          continue;
+        }
+        throw new PyError('SyntaxError', 'invalid syntax', lineNo, 'Python doesn’t understand the character "' + c + '".');
+      }
+      if (brackets.length) joining = true;
+      if (!joining) toks.push({ t: 'NEWLINE', line: lineNo });
+    }
+    if (brackets.length) {
+      const b = brackets[brackets.length - 1];
+      throw new PyError('SyntaxError', 'invalid syntax', b.line, 'This ' + b.c + ' is never closed.');
+    }
+    const last = lines.length;
+    if (toks.length && toks[toks.length - 1].t !== 'NEWLINE') toks.push({ t: 'NEWLINE', line: last });
+    while (indents.length > 1) { indents.pop(); toks.push({ t: 'DEDENT', line: last }); }
+    toks.push({ t: 'EOF', line: last });
+    return toks;
+  }
+
+  // ---------------------------------------------------------------- parser
+  const COLON_HINT = 'Is a colon : missing at the end of this line?';
+
+  class Parser {
+    constructor(toks) { this.t = toks; this.p = 0; }
+    peek(o) { return this.t[this.p + (o || 0)]; }
+    next() { return this.t[this.p++]; }
+    is(t, v) { const k = this.peek(); return k.t === t && (v === undefined || k.v === v); }
+    isOp(v) { return this.is('OP', v); }
+    isKw(v) { return this.is('KW', v); }
+    fail(hint) { throw new PyError('SyntaxError', 'invalid syntax', this.peek().line, hint); }
+    expectOp(v, hint) { if (!this.isOp(v)) this.fail(hint); return this.next(); }
+
+    program() {
+      const body = [];
+      while (!this.is('EOF')) {
+        if (this.is('NEWLINE')) { this.next(); continue; }
+        body.push(this.statement());
+      }
+      return body;
+    }
+    block() {
+      if (!this.is('NEWLINE')) {
+        if (this.is('EOF')) this.fail('Nothing comes after this colon.');
+        const s = this.simple();
+        this.endLine();
+        return [s];
+      }
+      this.next();
+      if (!this.is('INDENT')) {
+        throw new PyError('IndentationError', 'expected an indented block', this.peek().line,
+          'The lines after a colon : must be indented by 4 spaces.');
+      }
+      this.next();
+      const body = [];
+      while (!this.is('DEDENT') && !this.is('EOF')) {
+        if (this.is('NEWLINE')) { this.next(); continue; }
+        body.push(this.statement());
+      }
+      if (this.is('DEDENT')) this.next();
+      return body;
+    }
+    statement() {
+      const k = this.peek();
+      if (k.t === 'INDENT') {
+        throw new PyError('IndentationError', 'unexpected indent', k.line,
+          'This line starts with spaces, but it isn’t inside a loop, if or def. Remove the spaces at the start.');
+      }
+      if (k.t === 'KW') {
+        if (k.v === 'if') return this.ifStmt();
+        if (k.v === 'for') return this.forStmt();
+        if (k.v === 'while') return this.whileStmt();
+        if (k.v === 'def') return this.defStmt();
+      }
+      const s = this.simple();
+      this.endLine();
+      return s;
+    }
+    endLine() {
+      if (this.is('NEWLINE')) { this.next(); return; }
+      if (this.is('EOF')) return;
+      this.fail('Two things are on one line. Put each command on its own line.');
+    }
+    testColon() {
+      if (this.isOp('=')) this.fail('To compare two things, use == (two equals signs). One = means “store it”.');
+      this.expectOp(':', COLON_HINT);
+    }
+    ifStmt() {
+      const line = this.next().line;
+      const test = this.expr();
+      this.testColon();
+      const body = this.block();
+      let orelse = [];
+      if (this.isKw('elif')) {
+        orelse = [this.ifStmt()];
+      } else if (this.isKw('else')) {
+        this.next();
+        this.expectOp(':', COLON_HINT);
+        orelse = this.block();
+      }
+      return { k: 'if', test, body, orelse, line };
+    }
+    forStmt() {
+      const line = this.next().line;
+      if (!this.is('NAME')) this.fail('After for comes a name, like: for i in range(4):');
+      const target = this.next().v;
+      if (!this.isKw('in')) this.fail('Write it like: for i in range(4):');
+      this.next();
+      const iter = this.expr();
+      this.expectOp(':', COLON_HINT);
+      return { k: 'for', target, iter, body: this.block(), line };
+    }
+    whileStmt() {
+      const line = this.next().line;
+      const test = this.expr();
+      this.testColon();
+      return { k: 'while', test, body: this.block(), line };
+    }
+    defStmt() {
+      const line = this.next().line;
+      if (!this.is('NAME')) this.fail('After def comes the new command’s name, like: def square(size):');
+      const name = this.next().v;
+      this.expectOp('(', 'A def needs brackets, like: def square(size):');
+      const params = [];
+      while (!this.isOp(')')) {
+        if (!this.is('NAME')) this.fail();
+        const p = { name: this.next().v, def: null };
+        if (this.isOp('=')) { this.next(); p.def = this.expr(); }
+        params.push(p);
+        if (this.isOp(',')) this.next(); else if (!this.isOp(')')) this.fail();
+      }
+      this.next();
+      this.expectOp(':', COLON_HINT);
+      return { k: 'def', name, params, body: this.block(), line };
+    }
+    dotted() {
+      if (!this.is('NAME')) this.fail();
+      let name = this.next().v;
+      while (this.isOp('.')) { this.next(); if (!this.is('NAME')) this.fail(); name += '.' + this.next().v; }
+      return name;
+    }
+    simple() {
+      const k = this.peek();
+      const line = k.line;
+      if (k.t === 'KW') {
+        if (k.v === 'pass') { this.next(); return { k: 'pass', line }; }
+        if (k.v === 'break') { this.next(); return { k: 'break', line }; }
+        if (k.v === 'continue') { this.next(); return { k: 'continue', line }; }
+        if (k.v === 'return') {
+          this.next();
+          const value = this.is('NEWLINE') || this.is('EOF') ? null : this.expr();
+          return { k: 'return', value, line };
+        }
+        if (k.v === 'from') {
+          this.next();
+          const mod = this.dotted();
+          if (!this.isKw('import')) this.fail('Write it like: from pybricks.tools import wait');
+          this.next();
+          const names = [];
+          if (this.isOp('*')) { this.next(); names.push('*'); }
+          else {
+            const paren = this.isOp('(');
+            if (paren) this.next();
+            for (;;) {
+              if (!this.is('NAME')) this.fail();
+              names.push(this.next().v);
+              if (this.isOp(',')) { this.next(); if (paren && this.isOp(')')) break; continue; }
+              break;
+            }
+            if (paren) this.expectOp(')');
+          }
+          return { k: 'from', mod, names, line };
+        }
+        if (k.v === 'import') {
+          this.next();
+          const mod = this.dotted();
+          let as = null;
+          if (this.isKw('as')) { this.next(); if (!this.is('NAME')) this.fail(); as = this.next().v; }
+          return { k: 'import', mod, as, line };
+        }
+        if (UNSUPPORTED.has(k.v)) this.fail('“' + k.v + '” is real Python, but this simulator doesn’t support it.');
+        if (k.v === 'else' || k.v === 'elif') this.fail('This ' + k.v + ' doesn’t line up with an if above it.');
+      }
+      const e = this.expr();
+      if (this.isOp('=')) {
+        this.next();
+        if (e.k !== 'name' && e.k !== 'index') {
+          throw new PyError('SyntaxError', "can't assign to expression", line,
+            'The left side of = must be a name, like distance = 300. To compare, use ==.');
+        }
+        return { k: 'assign', target: e, value: this.expr(), line };
+      }
+      if (this.peek().t === 'OP' && ['+=', '-=', '*=', '/=', '//=', '%=', '**='].includes(this.peek().v)) {
+        const op = this.next().v.slice(0, -1);
+        if (e.k !== 'name') throw new PyError('SyntaxError', "can't assign to expression", line);
+        return { k: 'aug', target: e, op, value: this.expr(), line };
+      }
+      return { k: 'expr', e, line };
+    }
+
+    expr() { return this.orExpr(); }
+    orExpr() {
+      let l = this.andExpr();
+      while (this.isKw('or')) { const line = this.next().line; l = { k: 'bool', op: 'or', l, r: this.andExpr(), line }; }
+      return l;
+    }
+    andExpr() {
+      let l = this.notExpr();
+      while (this.isKw('and')) { const line = this.next().line; l = { k: 'bool', op: 'and', l, r: this.notExpr(), line }; }
+      return l;
+    }
+    notExpr() {
+      if (this.isKw('not')) { const line = this.next().line; return { k: 'not', e: this.notExpr(), line }; }
+      return this.comparison();
+    }
+    comparison() {
+      const first = this.arith();
+      const ops = [], rest = [];
+      for (;;) {
+        const k = this.peek();
+        if (k.t === 'OP' && ['==', '!=', '<', '>', '<=', '>='].includes(k.v)) { ops.push(this.next().v); rest.push(this.arith()); }
+        else if (k.t === 'KW' && k.v === 'in') { this.next(); ops.push('in'); rest.push(this.arith()); }
+        else if (k.t === 'KW' && k.v === 'not' && this.peek(1).t === 'KW' && this.peek(1).v === 'in') { this.next(); this.next(); ops.push('not in'); rest.push(this.arith()); }
+        else break;
+      }
+      if (!ops.length) return first;
+      return { k: 'cmp', first, ops, rest, line: first.line };
+    }
+    arith() {
+      let l = this.term();
+      while (this.isOp('+') || this.isOp('-')) { const t = this.next(); l = { k: 'bin', op: t.v, l, r: this.term(), line: t.line }; }
+      return l;
+    }
+    term() {
+      let l = this.unary();
+      while (this.isOp('*') || this.isOp('/') || this.isOp('//') || this.isOp('%')) {
+        const t = this.next(); l = { k: 'bin', op: t.v, l, r: this.unary(), line: t.line };
+      }
+      return l;
+    }
+    unary() {
+      if (this.isOp('-') || this.isOp('+')) { const t = this.next(); return { k: 'unary', op: t.v, e: this.unary(), line: t.line }; }
+      return this.power();
+    }
+    power() {
+      const b = this.postfix();
+      if (this.isOp('**')) { const t = this.next(); return { k: 'bin', op: '**', l: b, r: this.unary(), line: t.line }; }
+      return b;
+    }
+    postfix() {
+      let e = this.atom();
+      for (;;) {
+        if (this.isOp('(')) {
+          const line = this.next().line;
+          const args = [], kwargs = [];
+          while (!this.isOp(')')) {
+            if (this.is('NAME') && this.peek(1).t === 'OP' && this.peek(1).v === '=') {
+              const name = this.next().v; this.next();
+              kwargs.push({ name, value: this.expr() });
+            } else {
+              if (kwargs.length) this.fail('Put the name=value parts after the plain values.');
+              args.push(this.expr());
+            }
+            if (this.isOp(',')) this.next();
+            else if (!this.isOp(')')) this.fail('Is a comma , or a bracket ) missing?');
+          }
+          this.next();
+          e = { k: 'call', fn: e, args, kwargs, line };
+        } else if (this.isOp('.')) {
+          const line = this.next().line;
+          if (!this.is('NAME')) this.fail('After a dot comes a name, like robot.straight');
+          e = { k: 'attr', obj: e, name: this.next().v, line };
+        } else if (this.isOp('[')) {
+          const line = this.next().line;
+          const index = this.expr();
+          this.expectOp(']');
+          e = { k: 'index', obj: e, index, line };
+        } else break;
+      }
+      return e;
+    }
+    atom() {
+      const k = this.peek();
+      if (k.t === 'NUM') { this.next(); return { k: 'const', v: k.v, line: k.line }; }
+      if (k.t === 'STR') {
+        this.next();
+        let s = k.v;
+        while (this.is('STR')) s += this.next().v;
+        return { k: 'const', v: s, line: k.line };
+      }
+      if (k.t === 'NAME') { this.next(); return { k: 'name', name: k.v, line: k.line }; }
+      if (k.t === 'KW' && (k.v === 'True' || k.v === 'False' || k.v === 'None')) {
+        this.next();
+        return { k: 'const', v: k.v === 'True' ? true : k.v === 'False' ? false : null, line: k.line };
+      }
+      if (this.isOp('(')) {
+        this.next();
+        if (this.isOp(')')) { this.next(); return { k: 'tuple', items: [], line: k.line }; }
+        const first = this.expr();
+        if (this.isOp(',')) {
+          const items = [first];
+          while (this.isOp(',')) { this.next(); if (this.isOp(')')) break; items.push(this.expr()); }
+          this.expectOp(')');
+          return { k: 'tuple', items, line: k.line };
+        }
+        this.expectOp(')', 'Is a bracket ) missing?');
+        return first;
+      }
+      if (this.isOp('[')) {
+        this.next();
+        const items = [];
+        while (!this.isOp(']')) {
+          items.push(this.expr());
+          if (this.isOp(',')) this.next(); else if (!this.isOp(']')) this.fail('Is a comma , missing between items?');
+        }
+        this.next();
+        return { k: 'list', items, line: k.line };
+      }
+      if (k.t === 'KW' && UNSUPPORTED.has(k.v)) this.fail('“' + k.v + '” is real Python, but this simulator doesn’t support it.');
+      if (k.t === 'KW') this.fail('“' + k.v + '” is a Python keyword, so it can’t be used here.');
+      this.fail();
+    }
+  }
+
+  function parse(src) { return new Parser(tokenize(src)).program(); }
+
+  // ---------------------------------------------------------------- helpers
+  function builtin(name, fn) { return { pyType: 'builtin_function_or_method', name, fn, pyStr: () => '<function ' + name + '>' }; }
+  function klass(name, fn) { return { pyType: 'type', name, fn, pyStr: () => "<class '" + name + "'>" }; }
+
+  // Match call arguments to a spec: [name] = required, [name, default] = optional.
+  function bind(fname, spec, args, kwargs) {
+    const out = {};
+    if (args.length > spec.length) {
+      throw new PyError('TypeError', 'function takes ' + spec.length + ' positional arguments but ' + args.length + ' were given', null,
+        fname + ' was given too many values.');
+    }
+    spec.forEach((s, i) => { if (i < args.length) out[s[0]] = args[i]; });
+    for (const kw of kwargs) {
+      if (!spec.some(s => s[0] === kw.name)) {
+        throw new PyError('TypeError', "unexpected keyword argument '" + kw.name + "'", null,
+          fname + ' has no setting called ' + kw.name + '. Check the spelling.');
+      }
+      out[kw.name] = kw.value;
+    }
+    const missing = spec.filter(s => s.length === 1 && !(s[0] in out));
+    if (missing.length) {
+      throw new PyError('TypeError', 'function missing ' + missing.length + ' required positional arguments', null,
+        fname + ' needs a value for: ' + missing.map(s => s[0]).join(', ') + '.');
+    }
+    spec.forEach(s => { if (!(s[0] in out)) out[s[0]] = s[1]; });
+    return out;
+  }
+  function toNumber(x, what) {
+    if (isNum(x)) return num(x);
+    throw new PyError('TypeError', "can't convert " + typeName(x) + ' to float', null,
+      what + ' needs a number' + (typeof x === 'string' ? ', without quotes.' : '.'));
+  }
+  function toInt(x, what) {
+    if (typeof x === 'number' || typeof x === 'boolean') return num(x);
+    if (x instanceof PyFloat) throw new PyError('TypeError', "can't convert float to int", null, what + ' needs a whole number. Use int(...) to round down.');
+    throw new PyError('TypeError', "can't convert " + typeName(x) + ' to int', null, what + ' needs a whole number.');
+  }
+  function editDistance(a, b) {
+    const d = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+    for (let j = 1; j <= b.length; j++) d[0][j] = j;
+    for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) {
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    return d[a.length][b.length];
+  }
+  function closest(name, candidates) {
+    let best = null, bestD = 99;
+    for (const c of candidates) {
+      if (c === name) continue;
+      const d = c.toLowerCase() === name.toLowerCase() ? 0 : editDistance(c, name);
+      if (d < bestD) { bestD = d; best = c; }
+    }
+    return bestD <= Math.max(1, Math.floor(name.length / 4)) ? best : null;
+  }
+
+  function makeRange(start, stop, step) {
+    if (step === 0) throw new PyError('ValueError', 'zero step', null);
+    return {
+      pyType: 'range', start, stop, step,
+      len() { return Math.max(0, Math.ceil((stop - start) / step)); },
+      *[Symbol.iterator]() { for (let i = start; step > 0 ? i < stop : i > stop; i += step) yield i; },
+      pyStr() { return 'range(' + start + ', ' + stop + (step !== 1 ? ', ' + step : '') + ')'; },
+    };
+  }
+
+  // ---------------------------------------------------------------- the rover
+  const WHEEL_DIAMETER = 56;   // real wheel, mm
+  const AXLE_TRACK = 112;      // real distance between wheels, mm
+  const WHEEL_CIRC = Math.PI * WHEEL_DIAMETER;
+  const MOTOR_MAX = 1000;      // deg/s
+
+  const WIRINGS = {
+    // forward: +1 when the motor turning clockwise drives its wheel forward
+    robot5: { A: { side: 'right', forward: 1 }, B: { side: 'left', forward: -1 } },
+    hub6: { A: { side: 'left', forward: 1 }, B: { side: 'right', forward: 1 } },
+  };
+
+  class Sim {
+    constructor(opts) {
+      opts = opts || {};
+      this.wiring = WIRINGS[opts.wiring || 'robot5'];
+      this.slip = opts.slip ? 0.03 : 0;
+      let seed = opts.seed || 12345;
+      this.rand = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+      this.events = [];
+      this.time = 0;
+      this.pose = { x: 0, y: 0, h: 0 };
+      this.ports = new Map();       // port letter -> Motor
+      this.running = new Map();     // Motor -> raw deg/s in its own positive direction
+      this.wheelTurns = { left: 0, right: 0 };
+      this.moves = 0;
+    }
+    print(text) { this.events.push({ type: 'print', t: this.time, text }); }
+    note(text) { this.events.push({ type: 'note', t: this.time, text }); }
+
+    // Let `ms` of time pass. `turns` maps Motor -> degrees it must rotate (own direction).
+    advance(ms, turns) {
+      const rot = new Map(turns || []);
+      for (const [m, speed] of this.running) rot.set(m, (rot.get(m) || 0) + speed * ms / 1000);
+      let dl = 0, dr = 0;
+      for (const [m, deg] of rot) {
+        m.angleDeg += deg;
+        const w = this.wiring[m.port];
+        if (!w) continue;
+        const raw = deg * m.dirSign;
+        let travel = raw * w.forward * WHEEL_CIRC / 360;
+        if (this.slip) travel *= 1 + this.slip * (this.rand() * 2 - 1);
+        if (w.side === 'left') { dl += travel; this.wheelTurns.left += raw * w.forward / 360; }
+        else { dr += travel; this.wheelTurns.right += raw * w.forward / 360; }
+      }
+      const from = { ...this.pose };
+      this.pose = Sim.integrate(from, dl, dr, 1);
+      if (ms > 0 || dl || dr) {
+        this.events.push({ type: 'move', t: this.time, T: ms, from, dl, dr, to: { ...this.pose } });
+        if (++this.moves > 5000) {
+          throw new PyError('SimulatorStop', 'the program made more than 5000 moves', null, 'Is there a loop that never ends?');
+        }
+      }
+      this.time += ms;
+    }
+    static integrate(p, dl, dr, f) {
+      dl *= f; dr *= f;
+      const fwd = (dl + dr) / 2;
+      const dh = (dl - dr) / AXLE_TRACK; // clockwise positive
+      if (Math.abs(dh) < 1e-9) return { x: p.x + fwd * Math.sin(p.h), y: p.y + fwd * Math.cos(p.h), h: p.h };
+      const R = fwd / dh;
+      return {
+        x: p.x + R * (Math.cos(p.h) - Math.cos(p.h + dh)),
+        y: p.y + R * (Math.sin(p.h + dh) - Math.sin(p.h)),
+        h: p.h + dh,
+      };
+    }
+  }
+
+  // ---------------------------------------------------------------- pybricks
+  function enumValue(type, name) { return { pyType: type, name, pyStr: () => type + '.' + name }; }
+  function enumObject(type, names) {
+    const attrs = new Map(names.map(n => [n, enumValue(type, n)]));
+    return { pyType: 'type', name: type, attrs, pyStr: () => "<class '" + type + "'>" };
+  }
+
+  function makePybricks(sim) {
+    const Port = enumObject('Port', ['A', 'B', 'C', 'D', 'E', 'F']);
+    const Direction = enumObject('Direction', ['CLOCKWISE', 'COUNTERCLOCKWISE']);
+    const Stop = enumObject('Stop', ['COAST', 'BRAKE', 'HOLD', 'NONE', 'COAST_SMART']);
+    const Color = enumObject('Color', ['NONE', 'BLACK', 'GRAY', 'WHITE', 'RED', 'ORANGE', 'BROWN', 'YELLOW', 'GREEN', 'CYAN', 'BLUE', 'VIOLET', 'MAGENTA']);
+    const Button = enumObject('Button', ['LEFT', 'RIGHT', 'CENTER', 'BLUETOOTH']);
+
+    function checkPort(p, what) {
+      if (!p || p.pyType !== 'Port') {
+        throw new PyError('TypeError', "can't convert " + typeName(p) + ' to Port', null, what + ' needs a port, like Port.A');
+      }
+      return p.name;
+    }
+    function noDevice(port) {
+      throw new PyError('OSError', '[Errno 19] ENODEV: No device found on port ' + port, null,
+        'The rover only has motors in ports A and B.');
+    }
+
+    function motorObject(port, dir) {
+      const m = {
+        pyType: 'Motor', port, dirSign: dir === 'COUNTERCLOCKWISE' ? -1 : 1, angleDeg: 0,
+        pyStr: () => 'Motor(Port.' + port + ')',
+      };
+      const stopIt = builtin('stop', () => { sim.running.delete(m); return null; });
+      m.attrs = new Map([
+        ['run_angle', builtin('run_angle', (a, kw) => {
+          const o = bind('run_angle', [['speed'], ['rotation_angle'], ['then', null], ['wait', true]], a, kw);
+          const speed = toNumber(o.speed, 'run_angle speed'), angle = toNumber(o.rotation_angle, 'run_angle angle');
+          const s = Math.min(Math.abs(speed), MOTOR_MAX);
+          if (s === 0) return null;
+          const deg = speed < 0 ? -angle : angle;
+          sim.running.delete(m);
+          sim.advance(Math.abs(deg) / s * 1000, [[m, deg]]);
+          return null;
+        })],
+        ['run_time', builtin('run_time', (a, kw) => {
+          const o = bind('run_time', [['speed'], ['time'], ['then', null], ['wait', true]], a, kw);
+          const speed = Math.max(-MOTOR_MAX, Math.min(MOTOR_MAX, toNumber(o.speed, 'run_time speed')));
+          const ms = Math.max(0, toNumber(o.time, 'run_time time'));
+          sim.running.delete(m);
+          sim.advance(ms, [[m, speed * ms / 1000]]);
+          return null;
+        })],
+        ['run_target', builtin('run_target', (a, kw) => {
+          const o = bind('run_target', [['speed'], ['target_angle'], ['then', null], ['wait', true]], a, kw);
+          const s = Math.min(Math.abs(toNumber(o.speed, 'run_target speed')), MOTOR_MAX);
+          const deg = toNumber(o.target_angle, 'run_target angle') - m.angleDeg;
+          if (s === 0) return null;
+          sim.running.delete(m);
+          sim.advance(Math.abs(deg) / s * 1000, [[m, deg]]);
+          return null;
+        })],
+        ['run', builtin('run', (a, kw) => {
+          const o = bind('run', [['speed']], a, kw);
+          sim.running.set(m, Math.max(-MOTOR_MAX, Math.min(MOTOR_MAX, toNumber(o.speed, 'run speed'))));
+          return null;
+        })],
+        ['dc', builtin('dc', (a, kw) => {
+          const o = bind('dc', [['duty']], a, kw);
+          sim.running.set(m, Math.max(-100, Math.min(100, toNumber(o.duty, 'dc'))) * MOTOR_MAX / 100);
+          return null;
+        })],
+        ['stop', stopIt], ['brake', stopIt], ['hold', stopIt],
+        ['angle', builtin('angle', () => Math.round(m.angleDeg))],
+        ['speed', builtin('speed', () => Math.round(sim.running.get(m) || 0))],
+        ['reset_angle', builtin('reset_angle', (a, kw) => {
+          const o = bind('reset_angle', [['angle', 0]], a, kw);
+          m.angleDeg = toNumber(o.angle, 'reset_angle');
+          return null;
+        })],
+      ]);
+      return m;
+    }
+
+    const Motor = klass('Motor', (a, kw) => {
+      const o = bind('Motor', [['port'], ['positive_direction', Direction.attrs.get('CLOCKWISE')], ['gears', null], ['reset_angle', true], ['profile', null]], a, kw);
+      const port = checkPort(o.port, 'Motor');
+      const d = o.positive_direction;
+      if (!d || d.pyType !== 'Direction') {
+        throw new PyError('TypeError', "can't convert " + typeName(d) + ' to Direction', null, 'Use Direction.CLOCKWISE or Direction.COUNTERCLOCKWISE.');
+      }
+      if (!sim.wiring[port]) noDevice(port);
+      const m = motorObject(port, d.name);
+      sim.ports.set(port, m);
+      return m;
+    });
+
+    function sensor(name) {
+      return klass(name, (a, kw) => {
+        const o = bind(name, [['port']], a.slice(0, 1), []);
+        noDevice(checkPort(o.port, name));
+      });
+    }
+
+    const DriveBase = klass('DriveBase', (a, kw) => {
+      const o = bind('DriveBase', [['left_motor'], ['right_motor'], ['wheel_diameter'], ['axle_track']], a, kw);
+      for (const k of ['left_motor', 'right_motor']) {
+        if (!o[k] || o[k].pyType !== 'Motor') {
+          throw new PyError('TypeError', "can't convert " + typeName(o[k]) + ' to Motor', null, 'DriveBase needs two motors first, like DriveBase(left_motor, right_motor, ...)');
+        }
+      }
+      if (o.left_motor === o.right_motor) {
+        throw new PyError('ValueError', 'left and right motors must be different', null, 'Use left_motor and right_motor, not the same motor twice.');
+      }
+      const L = o.left_motor, R = o.right_motor;
+      const D = toNumber(o.wheel_diameter, 'wheel_diameter'), T = toNumber(o.axle_track, 'axle_track');
+      if (D <= 0 || T <= 0) throw new PyError('ValueError', 'Value must be positive', null, 'wheel_diameter and axle_track must be more than 0.');
+      const set = { straight_speed: 200, straight_acceleration: 400, turn_rate: 200, turn_acceleration: 800 };
+      const base = { L: 0, R: 0 };
+      const db = { pyType: 'DriveBase', pyStr: () => 'DriveBase' };
+      const degFor = mm => mm / (Math.PI * D) * 360;
+      const stopIt = builtin('stop', () => { sim.running.delete(L); sim.running.delete(R); return null; });
+      db.attrs = new Map([
+        ['straight', builtin('straight', (a, kw) => {
+          const o = bind('straight', [['distance'], ['then', null], ['wait', true]], a, kw);
+          const d = toNumber(o.distance, 'robot.straight');
+          sim.running.delete(L); sim.running.delete(R);
+          const deg = degFor(d);
+          sim.advance(Math.abs(d) / set.straight_speed * 1000, [[L, deg], [R, deg]]);
+          return null;
+        })],
+        ['turn', builtin('turn', (a, kw) => {
+          const o = bind('turn', [['angle'], ['then', null], ['wait', true], ['absolute', false]], a, kw);
+          const ang = toNumber(o.angle, 'robot.turn');
+          sim.running.delete(L); sim.running.delete(R);
+          const deg = degFor(Math.PI * T * ang / 360);
+          sim.advance(Math.abs(ang) / set.turn_rate * 1000, [[L, deg], [R, -deg]]);
+          return null;
+        })],
+        ['drive', builtin('drive', (a, kw) => {
+          const o = bind('drive', [['speed'], ['turn_rate']], a, kw);
+          const v = toNumber(o.speed, 'drive speed'), w = toNumber(o.turn_rate, 'drive turn_rate');
+          const wheel = w * Math.PI / 180 * T / 2;
+          sim.running.set(L, degFor(v + wheel));
+          sim.running.set(R, degFor(v - wheel));
+          return null;
+        })],
+        ['settings', builtin('settings', (a, kw) => {
+          const o = bind('settings', [['straight_speed', null], ['straight_acceleration', null], ['turn_rate', null], ['turn_acceleration', null]], a, kw);
+          const given = Object.keys(o).filter(k => o[k] !== null);
+          if (!given.length) {
+            const t = [set.straight_speed, set.straight_acceleration, set.turn_rate, set.turn_acceleration];
+            t.isTuple = true;
+            return t;
+          }
+          for (const k of given) {
+            const v = Math.abs(toNumber(o[k], k));
+            if (v === 0) throw new PyError('ValueError', 'Value must be positive', null, k + ' must be more than 0.');
+            set[k] = v;
+          }
+          return null;
+        })],
+        ['stop', stopIt], ['brake', stopIt], ['hold', stopIt],
+        ['distance', builtin('distance', () => Math.round(((L.angleDeg - base.L) + (R.angleDeg - base.R)) / 2 / 360 * Math.PI * D))],
+        ['angle', builtin('angle', () => {
+          // Each wheel's arc, from its motor angle, divided by half the axle track.
+          const arc = ((L.angleDeg - base.L) - (R.angleDeg - base.R)) / 2 / 360 * Math.PI * D;
+          return new PyFloat(arc / (T / 2) * 180 / Math.PI);
+        })],
+        ['reset', builtin('reset', () => { base.L = L.angleDeg; base.R = R.angleDeg; return null; })],
+      ]);
+      return db;
+    });
+
+    const wait = builtin('wait', (a, kw) => {
+      const o = bind('wait', [['time']], a, kw);
+      const ms = toNumber(o.time, 'wait');
+      if (ms > 0) sim.advance(ms, []);
+      return null;
+    });
+    const StopWatch = klass('StopWatch', () => {
+      let start = sim.time, pausedAt = null;
+      const sw = { pyType: 'StopWatch', pyStr: () => 'StopWatch' };
+      sw.attrs = new Map([
+        ['time', builtin('time', () => Math.round((pausedAt !== null ? pausedAt : sim.time) - start))],
+        ['reset', builtin('reset', () => { start = sim.time; if (pausedAt !== null) pausedAt = sim.time; return null; })],
+        ['pause', builtin('pause', () => { if (pausedAt === null) pausedAt = sim.time; return null; })],
+        ['resume', builtin('resume', () => { if (pausedAt !== null) { start += sim.time - pausedAt; pausedAt = null; } return null; })],
+      ]);
+      return sw;
+    });
+
+    function hubObject(name) {
+      return klass(name, () => {
+        const sub = (type, entries) => ({ pyType: type, pyStr: () => type, attrs: new Map(entries) });
+        const hub = { pyType: name, pyStr: () => name };
+        hub.attrs = new Map([
+          ['display', sub('LightMatrix', [
+            ['text', builtin('text', (a, kw) => { const o = bind('text', [['text'], ['on', 500], ['off', 50]], a, kw); sim.note('Hub screen scrolls: ' + str(o.text)); sim.advance(String(str(o.text)).length * 550, []); return null; })],
+            ['number', builtin('number', (a, kw) => { const o = bind('number', [['number']], a, kw); sim.note('Hub screen shows: ' + str(o.number)); return null; })],
+            ['char', builtin('char', (a, kw) => { const o = bind('char', [['char']], a, kw); sim.note('Hub screen shows: ' + str(o.char)); return null; })],
+            ['off', builtin('off', () => { sim.note('Hub screen off'); return null; })],
+          ])],
+          ['speaker', sub('Speaker', [
+            ['beep', builtin('beep', (a, kw) => { const o = bind('beep', [['frequency', 500], ['duration', 100]], a, kw); sim.note('Beep! (' + str(o.frequency) + ' Hz)'); sim.advance(Math.max(0, num(o.duration)), []); return null; })],
+          ])],
+          ['light', sub('ColorLight', [
+            ['on', builtin('on', (a, kw) => { const o = bind('on', [['color']], a, kw); sim.note('Hub light: ' + str(o.color)); return null; })],
+            ['off', builtin('off', () => { sim.note('Hub light off'); return null; })],
+          ])],
+          ['imu', sub('IMU', [
+            ['heading', builtin('heading', () => new PyFloat(sim.pose.h * 180 / Math.PI))],
+            ['reset_heading', builtin('reset_heading', () => null)],
+          ])],
+        ]);
+        return hub;
+      });
+    }
+
+    const mod = (name, entries) => ({ pyType: 'module', name, attrs: new Map(entries), pyStr: () => "<module '" + name + "'>" });
+    const modules = {
+      'pybricks.pupdevices': mod('pybricks.pupdevices', [['Motor', Motor], ['ColorSensor', sensor('ColorSensor')],
+        ['UltrasonicSensor', sensor('UltrasonicSensor')], ['ForceSensor', sensor('ForceSensor')], ['ColorDistanceSensor', sensor('ColorDistanceSensor')]]),
+      'pybricks.parameters': mod('pybricks.parameters', [['Port', Port], ['Direction', Direction], ['Stop', Stop], ['Color', Color], ['Button', Button]]),
+      'pybricks.robotics': mod('pybricks.robotics', [['DriveBase', DriveBase]]),
+      'pybricks.tools': mod('pybricks.tools', [['wait', wait], ['StopWatch', StopWatch]]),
+      'pybricks.hubs': mod('pybricks.hubs', [['PrimeHub', hubObject('PrimeHub')], ['InventorHub', hubObject('InventorHub')], ['ThisHub', hubObject('ThisHub')]]),
+    };
+    const mathEntries = [
+      ['pi', new PyFloat(Math.PI)], ['e', new PyFloat(Math.E)],
+      ...['sqrt', 'sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'exp', 'log'].map(n => [n, builtin(n, a => new PyFloat(Math[n](toNumber(a[0], n))))]),
+      ['atan2', builtin('atan2', a => new PyFloat(Math.atan2(toNumber(a[0], 'atan2'), toNumber(a[1], 'atan2'))))],
+      ['floor', builtin('floor', a => Math.floor(toNumber(a[0], 'floor')))],
+      ['ceil', builtin('ceil', a => Math.ceil(toNumber(a[0], 'ceil')))],
+      ['degrees', builtin('degrees', a => new PyFloat(toNumber(a[0], 'degrees') * 180 / Math.PI))],
+      ['radians', builtin('radians', a => new PyFloat(toNumber(a[0], 'radians') * Math.PI / 180))],
+    ];
+    modules.umath = mod('umath', mathEntries);
+    modules.math = mod('math', mathEntries);
+    const randEntries = [
+      ['randint', builtin('randint', a => { const lo = toInt(a[0], 'randint'), hi = toInt(a[1], 'randint'); return lo + Math.floor(sim.rand() * (hi - lo + 1)); })],
+      ['random', builtin('random', () => new PyFloat(sim.rand()))],
+      ['choice', builtin('choice', a => { const s = a[0]; if (!s || !s.length) throw new PyError('IndexError', 'empty sequence', null); return s[Math.floor(sim.rand() * s.length)]; })],
+    ];
+    modules.urandom = mod('urandom', randEntries);
+    modules.random = mod('random', randEntries);
+    const pkg = mod('pybricks', [['pupdevices', modules['pybricks.pupdevices']], ['parameters', modules['pybricks.parameters']],
+      ['robotics', modules['pybricks.robotics']], ['tools', modules['pybricks.tools']], ['hubs', modules['pybricks.hubs']]]);
+    modules.pybricks = pkg;
+    return modules;
+  }
+
+  // ---------------------------------------------------------------- interpreter
+  const SETUP_HINTS = {
+    Motor: 'Add the setup lines at the top. Motor comes from: from pybricks.pupdevices import Motor',
+    Port: 'Add the setup lines at the top. Port comes from: from pybricks.parameters import Port, Direction',
+    Direction: 'Add the setup lines at the top. Direction comes from: from pybricks.parameters import Port, Direction',
+    DriveBase: 'Add the setup lines at the top. DriveBase comes from: from pybricks.robotics import DriveBase',
+    robot: 'robot is made by the setup lines. Copy the setup lines to the top of your program.',
+    left_motor: 'left_motor is made by the setup lines. Copy them to the top of your program.',
+    right_motor: 'right_motor is made by the setup lines. Copy them to the top of your program.',
+    wait: 'wait comes from: from pybricks.tools import wait',
+  };
+
+  class Interp {
+    constructor(sim) {
+      this.sim = sim;
+      this.modules = makePybricks(sim);
+      this.globals = new Map();
+      this.frames = [{ name: '<module>', line: 0 }];
+      this.steps = 0;
+      this.builtins = this.makeBuiltins();
+    }
+    makeBuiltins() {
+      const sim = this.sim;
+      const b = new Map();
+      b.set('print', builtin('print', (a, kw) => {
+        let sep = ' ', end = '\n';
+        for (const k of kw) {
+          if (k.name === 'sep') sep = str(k.value); else if (k.name === 'end') end = str(k.value);
+          else throw new PyError('TypeError', "unexpected keyword argument '" + k.name + "'", null);
+        }
+        sim.print(a.map(str).join(sep) + end);
+        return null;
+      }));
+      b.set('range', builtin('range', a => {
+        if (a.length < 1 || a.length > 3) throw new PyError('TypeError', 'range expected 1 to 3 arguments', null, 'Use range(4), or range(start, stop).');
+        const n = a.map(x => toInt(x, 'range'));
+        return a.length === 1 ? makeRange(0, n[0], 1) : makeRange(n[0], n[1], a.length === 3 ? n[2] : 1);
+      }));
+      b.set('len', builtin('len', a => {
+        const x = a[0];
+        if (typeof x === 'string' || Array.isArray(x)) return x.length;
+        if (x && x.pyType === 'range') return x.len();
+        throw new PyError('TypeError', "object of type '" + typeName(x) + "' has no len()", null);
+      }));
+      b.set('abs', builtin('abs', a => { const x = a[0]; if (x instanceof PyFloat) return new PyFloat(Math.abs(x.v)); return Math.abs(toNumber(x, 'abs')); }));
+      b.set('round', builtin('round', a => {
+        const x = toNumber(a[0], 'round');
+        if (a.length > 1 && a[1] !== null) { const p = Math.pow(10, toInt(a[1], 'round')); return new PyFloat(Math.round(x * p) / p); }
+        const r = Math.round(x);
+        return (Math.abs(x % 1) === 0.5 && r % 2 !== 0) ? r - 1 : r;
+      }));
+      b.set('int', builtin('int', a => {
+        const x = a[0];
+        if (typeof x === 'string') {
+          if (!/^\s*[+-]?\d+\s*$/.test(x)) throw new PyError('ValueError', "invalid syntax for integer with base 10: '" + x + "'", null);
+          return parseInt(x, 10);
+        }
+        return Math.trunc(toNumber(x, 'int'));
+      }));
+      b.set('float', builtin('float', a => {
+        const x = a[0];
+        if (typeof x === 'string') { const v = parseFloat(x); if (Number.isNaN(v)) throw new PyError('ValueError', "could not convert string to float", null); return new PyFloat(v); }
+        return new PyFloat(toNumber(x, 'float'));
+      }));
+      b.set('str', builtin('str', a => (a.length ? str(a[0]) : '')));
+      b.set('bool', builtin('bool', a => truthy(a[0])));
+      const minmax = (name, pick) => builtin(name, a => {
+        const items = a.length === 1 && (Array.isArray(a[0]) || (a[0] && a[0].pyType === 'range')) ? [...a[0]] : a;
+        if (!items.length) throw new PyError('ValueError', name + '() arg is an empty sequence', null);
+        return items.reduce((x, y) => (pick(num(y), num(x)) ? y : x));
+      });
+      b.set('min', minmax('min', (y, x) => y < x));
+      b.set('max', minmax('max', (y, x) => y > x));
+      b.set('sum', builtin('sum', a => [...a[0]].reduce((x, y) => this.binop('+', x, y), 0)));
+      b.set('list', builtin('list', a => (a.length ? [...(typeof a[0] === 'string' ? a[0].split('') : a[0])] : [])));
+      b.set('input', builtin('input', () => {
+        throw new PyError('OSError', 'input is not available', null, 'Programs on the hub can’t ask for typed input. Use variables instead.');
+      }));
+      return b;
+    }
+
+    tick(line) {
+      this.frames[this.frames.length - 1].line = line;
+      if (++this.steps > 300000) {
+        throw new PyError('SimulatorStop', 'the program ran for too long', line, 'Is there a loop that never ends?');
+      }
+    }
+
+    run(body) {
+      for (const s of body) this.exec(s, null);
+    }
+
+    lookup(name, locals, line) {
+      if (locals && locals.has(name)) return locals.get(name);
+      if (this.globals.has(name)) return this.globals.get(name);
+      if (this.builtins.has(name)) return this.builtins.get(name);
+      const known = [...(locals ? locals.keys() : []), ...this.globals.keys(), ...this.builtins.keys()];
+      let hint = SETUP_HINTS[name] || null;
+      const near = closest(name, known);
+      if (near) hint = 'Did you mean ' + near + '? Spelling and capital letters matter.';
+      else if (!hint && /^[A-Za-z]+$/.test(name) && line) hint = 'If ' + name + ' is meant to be text, put it in quotes: "' + name + '"';
+      throw new PyError('NameError', "name '" + name + "' isn't defined", line, hint);
+    }
+    assign(target, value, locals) {
+      if (target.k === 'name') { (locals || this.globals).set(target.name, value); return; }
+      const obj = this.eval(target.obj, locals);
+      if (!Array.isArray(obj) || obj.isTuple) throw new PyError('TypeError', "'" + typeName(obj) + "' object doesn't support item assignment", target.line);
+      obj[this.index(obj, this.eval(target.index, locals))] = value;
+    }
+
+    exec(s, locals) {
+      this.tick(s.line);
+      try {
+        switch (s.k) {
+          case 'expr': this.eval(s.e, locals); return;
+          case 'assign': this.assign(s.target, this.eval(s.value, locals), locals); return;
+          case 'aug': {
+            const cur = this.lookup(s.target.name, locals, s.line);
+            this.assign(s.target, this.binop(s.op, cur, this.eval(s.value, locals)), locals);
+            return;
+          }
+          case 'if': {
+            const body = truthy(this.eval(s.test, locals)) ? s.body : s.orelse;
+            for (const x of body) this.exec(x, locals);
+            return;
+          }
+          case 'for': {
+            const it = this.iter(this.eval(s.iter, locals));
+            for (const v of it) {
+              (locals || this.globals).set(s.target, v);
+              try { for (const x of s.body) this.exec(x, locals); }
+              catch (e) { if (e instanceof BreakSig) break; if (e instanceof ContinueSig) continue; throw e; }
+              this.tick(s.line);
+            }
+            return;
+          }
+          case 'while': {
+            while (truthy(this.eval(s.test, locals))) {
+              try { for (const x of s.body) this.exec(x, locals); }
+              catch (e) { if (e instanceof BreakSig) break; if (e instanceof ContinueSig) continue; throw e; }
+              this.tick(s.line);
+            }
+            return;
+          }
+          case 'def': {
+            const defaults = s.params.map(p => (p.def ? this.eval(p.def, locals) : undefined));
+            (locals || this.globals).set(s.name, {
+              pyType: 'function', name: s.name, params: s.params.map((p, i) => ({ name: p.name, def: defaults[i] })), body: s.body,
+              pyStr: () => '<function ' + s.name + '>',
+            });
+            return;
+          }
+          case 'return':
+            if (!locals) throw new PyError('SyntaxError', "'return' outside function", s.line);
+            throw new ReturnSig(s.value ? this.eval(s.value, locals) : null);
+          case 'break': throw new BreakSig();
+          case 'continue': throw new ContinueSig();
+          case 'pass': return;
+          case 'import': {
+            const m = this.getModule(s.mod, s.line);
+            if (s.as) (locals || this.globals).set(s.as, m);
+            else { const top = s.mod.split('.')[0]; (locals || this.globals).set(top, this.getModule(top, s.line)); }
+            return;
+          }
+          case 'from': {
+            const m = this.getModule(s.mod, s.line);
+            const names = s.names[0] === '*' ? [...m.attrs.keys()] : s.names;
+            for (const n of names) {
+              if (!m.attrs.has(n)) {
+                const near = closest(n, [...m.attrs.keys()]);
+                throw new PyError('ImportError', "can't import name " + n, s.line,
+                  near ? 'Did you mean ' + near + '? Capital letters matter.' : s.mod + ' has no ' + n + '.');
+              }
+              (locals || this.globals).set(n, m.attrs.get(n));
+            }
+            return;
+          }
+        }
+      } catch (e) {
+        if (e instanceof PyError) {
+          if (e.line === null || e.line === undefined) e.line = s.line;
+          if (!e.trace) e.trace = this.frames.map(f => ({ ...f }));
+        }
+        throw e;
+      }
+    }
+
+    getModule(name, line) {
+      const m = this.modules[name];
+      if (!m) {
+        const near = closest(name, Object.keys(this.modules));
+        throw new PyError('ImportError', "no module named '" + name + "'", line,
+          near ? 'Did you mean ' + near + '?' : 'Check the spelling. The setup lines use pybricks.pupdevices, pybricks.parameters and pybricks.robotics.');
+      }
+      return m;
+    }
+    iter(x) {
+      if (x && x.pyType === 'range') return [...x];
+      if (Array.isArray(x)) return [...x];
+      if (typeof x === 'string') return x.split('');
+      const hint = typeof x === 'number' ? 'To repeat ' + x + ' times, write range(' + x + ').' : null;
+      throw new PyError('TypeError', "'" + typeName(x) + "' object isn't iterable", null, hint);
+    }
+    index(obj, i) {
+      const n = toInt(i, 'An index');
+      const len = obj.length;
+      const j = n < 0 ? n + len : n;
+      if (j < 0 || j >= len) throw new PyError('IndexError', (typeof obj === 'string' ? 'string' : 'list') + ' index out of range', null);
+      return j;
+    }
+
+    eval(e, locals) {
+      switch (e.k) {
+        case 'const': return e.v;
+        case 'name': return this.lookup(e.name, locals, e.line);
+        case 'list': return e.items.map(x => this.eval(x, locals));
+        case 'tuple': { const t = e.items.map(x => this.eval(x, locals)); t.isTuple = true; return t; }
+        case 'bin': return this.binop(e.op, this.eval(e.l, locals), this.eval(e.r, locals));
+        case 'unary': {
+          const v = this.eval(e.e, locals);
+          if (!isNum(v)) {
+            throw new PyError('TypeError', "unsupported type for __" + (e.op === '-' ? 'neg' : 'pos') + "__: '" + typeName(v) + "'", null);
+          }
+          if (e.op === '+') return v;
+          return v instanceof PyFloat ? new PyFloat(-v.v) : -num(v);
+        }
+        case 'not': return !truthy(this.eval(e.e, locals));
+        case 'bool': {
+          const l = this.eval(e.l, locals);
+          if (e.op === 'and') return truthy(l) ? this.eval(e.r, locals) : l;
+          return truthy(l) ? l : this.eval(e.r, locals);
+        }
+        case 'cmp': {
+          let left = this.eval(e.first, locals);
+          for (let i = 0; i < e.ops.length; i++) {
+            const right = this.eval(e.rest[i], locals);
+            if (!this.compare(e.ops[i], left, right)) return false;
+            left = right;
+          }
+          return true;
+        }
+        case 'attr': return this.getattr(this.eval(e.obj, locals), e.name);
+        case 'index': {
+          const obj = this.eval(e.obj, locals);
+          if (typeof obj !== 'string' && !Array.isArray(obj)) throw new PyError('TypeError', "'" + typeName(obj) + "' object isn't subscriptable", null);
+          return obj[this.index(obj, this.eval(e.index, locals))];
+        }
+        case 'call': {
+          const fn = this.eval(e.fn, locals);
+          const args = e.args.map(x => this.eval(x, locals));
+          const kwargs = e.kwargs.map(k => ({ name: k.name, value: this.eval(k.value, locals) }));
+          return this.call(fn, args, kwargs, e);
+        }
+      }
+      throw new PyError('SyntaxError', 'invalid syntax', e.line);
+    }
+
+    getattr(obj, name) {
+      if (obj && obj.attrs && obj.attrs.has(name)) return obj.attrs.get(name);
+      const known = obj && obj.attrs ? [...obj.attrs.keys()] : [];
+      const near = closest(name, known);
+      const tn = obj && obj.pyType === 'type' ? obj.name : obj && obj.pyType === 'module' ? obj.name : typeName(obj);
+      throw new PyError('AttributeError', "'" + tn + "' object has no attribute '" + name + "'", null,
+        near ? 'Did you mean .' + near + '?' : (tn === 'DriveBase' ? 'A DriveBase can do: straight, turn, settings, drive, stop.' : null));
+    }
+
+    call(fn, args, kwargs, node) {
+      if (fn && (fn.pyType === 'builtin_function_or_method' || fn.pyType === 'type') && fn.fn) {
+        try { return fn.fn(args, kwargs); }
+        catch (err) {
+          if (err instanceof PyError && err.hint === null && fn.name && /required positional|positional arguments/.test(err.msg)) err.hint = fn.name + ' was given the wrong number of values.';
+          throw err;
+        }
+      }
+      if (fn && fn.pyType === 'function') {
+        const params = fn.params;
+        if (args.length > params.length) {
+          throw new PyError('TypeError', 'function takes ' + params.length + ' positional arguments but ' + args.length + ' were given', null);
+        }
+        const locals = new Map();
+        params.forEach((p, i) => { if (i < args.length) locals.set(p.name, args[i]); });
+        for (const k of kwargs) {
+          if (!params.some(p => p.name === k.name)) throw new PyError('TypeError', "unexpected keyword argument '" + k.name + "'", null);
+          locals.set(k.name, k.value);
+        }
+        const missing = params.filter(p => !locals.has(p.name) && p.def === undefined);
+        if (missing.length) {
+          throw new PyError('TypeError', 'function missing ' + missing.length + ' required positional arguments', null,
+            fn.name + ' needs a value for: ' + missing.map(p => p.name).join(', ') + '.');
+        }
+        params.forEach(p => { if (!locals.has(p.name)) locals.set(p.name, p.def); });
+        if (this.frames.length > 60) throw new PyError('RuntimeError', 'maximum recursion depth exceeded', null);
+        this.frames.push({ name: fn.name, line: node.line });
+        try {
+          for (const s of fn.body) this.exec(s, locals);
+          return null;
+        } catch (e) {
+          if (e instanceof ReturnSig) return e.v;
+          if (e instanceof BreakSig || e instanceof ContinueSig) throw new PyError('SyntaxError', "'break' outside loop", node.line);
+          throw e;
+        } finally {
+          this.frames.pop();
+        }
+      }
+      const tn = typeName(fn);
+      throw new PyError('TypeError', "'" + tn + "' object isn't callable", null,
+        tn === 'int' || tn === 'float' ? 'A number can’t be used like a command. Is a * missing?' : null);
+    }
+
+    binop(op, a, b) {
+      if (isNum(a) && isNum(b)) {
+        const x = num(a), y = num(b);
+        const float = a instanceof PyFloat || b instanceof PyFloat;
+        const zero = () => { throw new PyError('ZeroDivisionError', 'divide by zero', null, 'You can’t divide by 0.'); };
+        switch (op) {
+          case '+': return float ? new PyFloat(x + y) : x + y;
+          case '-': return float ? new PyFloat(x - y) : x - y;
+          case '*': return float ? new PyFloat(x * y) : x * y;
+          case '/': if (y === 0) zero(); return new PyFloat(x / y);
+          case '//': if (y === 0) zero(); return float ? new PyFloat(Math.floor(x / y)) : Math.floor(x / y);
+          case '%': if (y === 0) zero(); { const r = ((x % y) + y) % y; return float ? new PyFloat(r) : r; }
+          case '**': return !float && y >= 0 ? Math.pow(x, y) : new PyFloat(Math.pow(x, y));
+        }
+      }
+      if (op === '+' && typeof a === 'string' && typeof b === 'string') return a + b;
+      if (op === '+' && Array.isArray(a) && Array.isArray(b)) return a.concat(b);
+      if (op === '*' && typeof a === 'string' && (typeof b === 'number' || typeof b === 'boolean')) return a.repeat(Math.max(0, num(b)));
+      if (op === '*' && typeof b === 'string' && (typeof a === 'number' || typeof a === 'boolean')) return b.repeat(Math.max(0, num(a)));
+      if (op === '*' && Array.isArray(a) && typeof b === 'number') { let r = []; for (let i = 0; i < b; i++) r = r.concat(a); return r; }
+      const names = { '+': 'add', '-': 'sub', '*': 'mul', '/': 'truediv', '//': 'floordiv', '%': 'mod', '**': 'pow' };
+      let hint = null;
+      if (op === '+' && (typeof a === 'string' || typeof b === 'string')) hint = 'To join text and a number, use str(): "Distance: " + str(300). Or print("Distance:", 300).';
+      else if (typeof a === 'string' || typeof b === 'string') hint = 'You can’t do maths with text. Numbers have no quotes: 300, not "300".';
+      throw new PyError('TypeError', 'unsupported types for __' + names[op] + "__: '" + typeName(a) + "', '" + typeName(b) + "'", null, hint);
+    }
+
+    compare(op, a, b) {
+      if (op === 'in' || op === 'not in') {
+        let r;
+        if (typeof b === 'string') r = b.includes(str(a));
+        else if (Array.isArray(b)) r = b.some(x => this.compare('==', x, a));
+        else if (b && b.pyType === 'range') r = [...b].includes(num(a));
+        else throw new PyError('TypeError', "argument of type '" + typeName(b) + "' isn't iterable", null);
+        return op === 'in' ? r : !r;
+      }
+      if (op === '==' || op === '!=') {
+        let eq;
+        if (isNum(a) && isNum(b)) eq = num(a) === num(b);
+        else if (Array.isArray(a) && Array.isArray(b)) eq = a.length === b.length && a.every((x, i) => this.compare('==', x, b[i]));
+        else eq = a === b;
+        return op === '==' ? eq : !eq;
+      }
+      let x, y;
+      if (isNum(a) && isNum(b)) { x = num(a); y = num(b); }
+      else if (typeof a === 'string' && typeof b === 'string') { x = a; y = b; }
+      else throw new PyError('TypeError', "unsupported types for __" + { '<': 'lt', '>': 'gt', '<=': 'le', '>=': 'ge' }[op] + "__: '" + typeName(a) + "', '" + typeName(b) + "'", null);
+      switch (op) { case '<': return x < y; case '>': return x > y; case '<=': return x <= y; case '>=': return x >= y; }
+      return false;
+    }
+  }
+
+  // ---------------------------------------------------------------- public API
+  function formatError(err) {
+    const lines = ['Traceback (most recent call last):'];
+    if (err.type === 'SyntaxError' || err.type === 'IndentationError' || !err.trace) {
+      lines.push('  File "__main__.py", line ' + err.line);
+    } else {
+      err.trace.forEach((f, i) => {
+        const line = i === err.trace.length - 1 ? err.line : f.line;
+        lines.push('  File "__main__.py", line ' + line + ', in ' + f.name);
+      });
+    }
+    lines.push(err.type + ': ' + err.msg);
+    return lines.join('\n');
+  }
+
+  function runProgram(src, opts) {
+    const sim = new Sim(opts);
+    const result = { events: sim.events, error: null, sim };
+    try {
+      const body = parse(src);
+      const interp = new Interp(sim);
+      interp.run(body);
+    } catch (e) {
+      if (e instanceof PyError) {
+        result.error = { type: e.type, msg: e.msg, line: e.line, hint: e.hint, text: formatError(e), t: sim.time };
+      } else if (e instanceof BreakSig || e instanceof ContinueSig) {
+        result.error = { type: 'SyntaxError', msg: "'break' outside loop", line: null, hint: null, text: "SyntaxError: 'break' outside loop", t: sim.time };
+      } else {
+        result.error = { type: 'InternalError', msg: String(e && e.message || e), line: null, hint: 'The simulator hit a problem. This is a simulator bug, not your code.', text: 'Simulator error: ' + String(e && e.message || e), t: sim.time };
+      }
+    }
+    result.end = { pose: { ...sim.pose }, time: sim.time, wheelTurns: { ...sim.wheelTurns } };
+    return result;
+  }
+
+  const api = { runProgram, integrate: Sim.integrate, WHEEL_DIAMETER, AXLE_TRACK, floatStr };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.RoverSim = api;
+})(typeof window !== 'undefined' ? window : this);
+
+</script>
+<script>
+/* The code from each slide of "Code a Rover", in slide order. */
+(function (root) {
+  const SETUP = [
+    'from pybricks.pupdevices import Motor',
+    'from pybricks.parameters import Port, Direction',
+    'from pybricks.robotics import DriveBase',
+    'left_motor = Motor(Port.B, Direction.COUNTERCLOCKWISE)',
+    'right_motor = Motor(Port.A)',
+    'robot = DriveBase(left_motor, right_motor,',
+    '    wheel_diameter=56, axle_track=112)',
+    '',
+  ].join('\n');
+
+  const EXAMPLES = [
+    { id: 'hello', slide: 'Your first program', code: 'print("Hello, rover!")\n' },
+    { id: 'rules', slide: 'Python’s four rules (line 2 is a bug on purpose)', code: 'print("Hi") # works\nPrint("Hi") # error!\n' },
+    { id: 'variables', slide: 'Variables: labelled boxes', code: 'name = "Rover"\ndistance = 300\nprint(name)\nprint(distance)\n' },
+    { id: 'maths', slide: 'Python does maths', code: 'print(2 + 3)\nprint(10 * 176)\nturns = 3\ndistance = turns * 176\nprint(distance)\n' },
+    { id: 'setup', slide: 'The setup lines', code: SETUP + '\nrobot.straight(300)\n' },
+    { id: 'straight', slide: 'Drive straight', code: SETUP + '\nrobot.straight(300) # forward\nrobot.straight(-150) # back\n' },
+    { id: 'turn', slide: 'Turn on the spot', code: SETUP + '\nrobot.turn(90) # right\nrobot.turn(-90) # left\n' },
+    { id: 'physics', slide: 'How far is one wheel turn? (3 turns)', code: SETUP + '\nrobot.straight(528)\n' },
+    {
+      id: 'sequence', slide: 'Moves run in order (a square)',
+      code: SETUP + '\nrobot.straight(300)\nrobot.turn(90)\nrobot.straight(300)\nrobot.turn(90)\nrobot.straight(300)\nrobot.turn(90)\nrobot.straight(300)\nrobot.turn(90)\n',
+    },
+    { id: 'loops', slide: 'Repeat with a loop', code: SETUP + '\nfor i in range(4):\n    robot.straight(300)\n    robot.turn(90)\n' },
+    {
+      id: 'varmoves', slide: 'Variables make changes easy (a pentagon)',
+      code: SETUP + '\nside = 250\nsides = 5\nfor i in range(sides):\n    robot.straight(side)\n    robot.turn(360 / sides)\n',
+    },
+    {
+      id: 'plan', slide: 'Plan before you code (practice path)', path: 'practice',
+      code: SETUP + '\nrobot.straight(450)\nrobot.turn(90)\nrobot.straight(300)\nrobot.turn(-90)\nrobot.straight(600)\n',
+    },
+    {
+      id: 'starter', slide: 'Your starter program',
+      code: '# Setup lines: just copy\n' + SETUP + '\n# Your moves go here\nrobot.straight(300)\nrobot.turn(90)\n',
+    },
+  ];
+
+  const api = { SETUP, EXAMPLES };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.RoverExamples = api;
+})(typeof window !== 'undefined' ? window : this);
+
+</script>
+<script>
+(function () {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const code = $('code'), gutter = $('gutter'), terminal = $('terminal'), canvas = $('canvas'), ctx = canvas.getContext('2d');
+  const STORE = 'rover-sim-code';
+  const { SETUP } = window.RoverExamples;
+  const Sim = window.RoverSim;
+
+  // ---------------------------------------------------------------- editor
+  let errorLine = null;
+  function renderGutter() {
+    const n = code.value.split('\n').length;
+    let html = '';
+    for (let i = 1; i <= n; i++) html += '<div' + (i === errorLine ? ' class="bad"' : '') + '>' + i + '</div>';
+    gutter.innerHTML = html;
+    gutter.scrollTop = code.scrollTop;
+  }
+  function save() { try { localStorage.setItem(STORE, code.value); } catch (e) { /* storage unavailable */ } }
+  function setCode(text) { code.value = text; errorLine = null; renderGutter(); save(); }
+  code.addEventListener('input', () => { errorLine = null; renderGutter(); save(); });
+  code.addEventListener('scroll', () => { gutter.scrollTop = code.scrollTop; });
+  code.addEventListener('keydown', e => {
+    const s = code.selectionStart, end = code.selectionEnd, v = code.value;
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); run(); return; }
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const lineStart = v.lastIndexOf('\n', s - 1) + 1;
+      if (e.shiftKey) {
+        const spaces = /^ {1,4}/.exec(v.slice(lineStart));
+        if (spaces) {
+          code.setRangeText('', lineStart, lineStart + spaces[0].length, 'preserve');
+          code.selectionStart = code.selectionEnd = Math.max(lineStart, s - spaces[0].length);
+        }
+      } else {
+        code.setRangeText('    ', s, end, 'end');
+      }
+      code.dispatchEvent(new Event('input'));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const lineStart = v.lastIndexOf('\n', s - 1) + 1;
+      const line = v.slice(lineStart, s);
+      let indent = /^ */.exec(line)[0];
+      if (/:\s*(#.*)?$/.test(line)) indent += '    ';
+      code.setRangeText('\n' + indent, s, end, 'end');
+      code.dispatchEvent(new Event('input'));
+    }
+  });
+  function goToLine(n) {
+    const lines = code.value.split('\n');
+    let pos = 0;
+    for (let i = 0; i < n - 1 && i < lines.length; i++) pos += lines[i].length + 1;
+    code.focus();
+    code.setSelectionRange(pos, pos + (lines[n - 1] || '').length);
+    code.scrollTop = Math.max(0, (n - 4) * 22);
+  }
+
+  // ---------------------------------------------------------------- paths
+  const PLANNED = { pts: [{ x: 0, y: 0 }, { x: 0, y: 450 }, { x: 300, y: 450 }, { x: 300, y: 1050 }], turns: [1, -1] };
+  let path = PLANNED;
+  function segDist(a, b, c, d) {
+    let best = Infinity;
+    for (let i = 0; i <= 24; i++) {
+      const p = { x: a.x + (b.x - a.x) * i / 24, y: a.y + (b.y - a.y) * i / 24 };
+      for (let j = 0; j <= 24; j++) {
+        const q = { x: c.x + (d.x - c.x) * j / 24, y: c.y + (d.y - c.y) * j / 24 };
+        best = Math.min(best, Math.hypot(p.x - q.x, p.y - q.y));
+      }
+    }
+    return best;
+  }
+  function randomPath() {
+    const dirs = [[0, 1], [1, 0], [0, -1], [-1, 0]];
+    for (let attempt = 0; attempt < 400; attempt++) {
+      const pts = [{ x: 0, y: 0 }], turns = [];
+      let dir = 0, ok = true;
+      const n = 3 + Math.floor(Math.random() * 3);
+      for (let i = 0; i < n && ok; i++) {
+        if (i > 0) { const t = Math.random() < 0.5 ? 1 : -1; turns.push(t); dir = (dir + t + 4) % 4; }
+        const L = 250 + 50 * Math.floor(Math.random() * 8);
+        const last = pts[pts.length - 1];
+        const p = { x: last.x + dirs[dir][0] * L, y: last.y + dirs[dir][1] * L };
+        if (Math.abs(p.x) < 250 && p.y < 250) ok = false;
+        for (let k = 0; k < pts.length - 2 && ok; k++) if (segDist(pts[k], pts[k + 1], last, p) < 200) ok = false;
+        pts.push(p);
+      }
+      if (ok) return { pts, turns };
+    }
+    return PLANNED;
+  }
+  function choosePath(p, button) {
+    stop();
+    path = p;
+    $('planned').classList.toggle('on', button === 'planned');
+    $('random').classList.toggle('on', button === 'random');
+    resetRover(); trajectory = []; clearOutput(); $('chip').hidden = true;
+    fitView(); draw();
+  }
+  $('planned').addEventListener('click', () => choosePath(PLANNED, 'planned'));
+  $('random').addEventListener('click', () => choosePath(randomPath(), 'random'));
+  $('solution').addEventListener('click', () => {
+    const lines = [];
+    for (let i = 0; i < path.pts.length - 1; i++) {
+      const a = path.pts[i], b = path.pts[i + 1];
+      if (i > 0) lines.push('robot.turn(' + (path.turns[i - 1] * 90) + ')');
+      lines.push('robot.straight(' + Math.round(Math.hypot(b.x - a.x, b.y - a.y)) + ')');
+    }
+    setCode(SETUP + '\n' + lines.join('\n') + '\n');
+    run();
+  });
+
+  // ---------------------------------------------------------------- view
+  let view = { x: 0, y: 400, scale: 0.4 };
+  let result = null, trajectory = [];
+  function colors() {
+    const cs = getComputedStyle(document.documentElement);
+    const g = n => cs.getPropertyValue(n).trim();
+    return { grid: g('--grid'), gridStrong: g('--grid-strong'), tape: g('--tape'), trail: g('--trail'), floor: g('--floor'),
+      ink: g('--ink'), muted: g('--muted'), accent: g('--accent'), panel: g('--panel'), font: g('--font-body') };
+  }
+  function sizeCanvas() {
+    const box = $('floor');
+    const w = box.clientWidth, h = box.clientHeight;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    fitView();
+    draw();
+  }
+  function fitView() {
+    const pts = [{ x: -150, y: -150 }, { x: 150, y: 250 }, ...path.pts, ...trajectory];
+    let minX = Math.min(...pts.map(p => p.x)) - 150, maxX = Math.max(...pts.map(p => p.x)) + 150;
+    let minY = Math.min(...pts.map(p => p.y)) - 150, maxY = Math.max(...pts.map(p => p.y)) + 200;
+    if (maxX - minX < 900) { const c = (minX + maxX) / 2; minX = c - 450; maxX = c + 450; }
+    if (maxY - minY < 900) { const c = (minY + maxY) / 2; minY = c - 450; maxY = c + 450; }
+    const w = canvas.clientWidth || 600, h = canvas.clientHeight || 400;
+    view = { x: (minX + maxX) / 2, y: (minY + maxY) / 2, scale: Math.min(w / (maxX - minX), h / (maxY - minY)) };
+  }
+  const sx = x => canvas.clientWidth / 2 + (x - view.x) * view.scale;
+  const sy = y => canvas.clientHeight / 2 - (y - view.y) * view.scale;
+
+  let anim = null;
+  let pose = { x: 0, y: 0, h: 0 }, trail = [{ x: 0, y: 0 }], shownEvents = 0;
+
+  function draw() {
+    const c = colors();
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = c.floor; ctx.fillRect(0, 0, w, h);
+
+    const x0 = view.x - w / 2 / view.scale, x1 = view.x + w / 2 / view.scale;
+    const y0 = view.y - h / 2 / view.scale, y1 = view.y + h / 2 / view.scale;
+    ctx.lineWidth = 1;
+    for (let gx = Math.floor(x0 / 100) * 100; gx <= x1; gx += 100) {
+      ctx.strokeStyle = gx % 500 === 0 ? c.gridStrong : c.grid;
+      ctx.beginPath(); ctx.moveTo(sx(gx), 0); ctx.lineTo(sx(gx), h); ctx.stroke();
+    }
+    for (let gy = Math.floor(y0 / 100) * 100; gy <= y1; gy += 100) {
+      ctx.strokeStyle = gy % 500 === 0 ? c.gridStrong : c.grid;
+      ctx.beginPath(); ctx.moveTo(0, sy(gy)); ctx.lineTo(w, sy(gy)); ctx.stroke();
+    }
+
+    // start box
+    ctx.strokeStyle = c.muted; ctx.lineWidth = 2; ctx.setLineDash([6, 5]);
+    ctx.strokeRect(sx(-110), sy(130), 220 * view.scale, 240 * view.scale);
+    ctx.setLineDash([]);
+    ctx.fillStyle = c.muted; ctx.font = '700 12px ' + c.font; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.fillText('START', sx(0), sy(-110) + 4);
+
+    // tape and lengths
+    ctx.strokeStyle = c.tape; ctx.lineWidth = Math.max(4, 25 * view.scale); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.globalAlpha = 0.85;
+    ctx.beginPath();
+    path.pts.forEach((p, i) => (i ? ctx.lineTo(sx(p.x), sy(p.y)) : ctx.moveTo(sx(p.x), sy(p.y))));
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = c.ink; ctx.font = '700 13px ' + c.font; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+    for (let i = 0; i < path.pts.length - 1; i++) {
+      const a = path.pts[i], b = path.pts[i + 1];
+      const vertical = a.x === b.x;
+      ctx.fillText(Math.round(Math.hypot(b.x - a.x, b.y - a.y)) + ' mm', sx((a.x + b.x) / 2 + (vertical ? 75 : 0)), sy((a.y + b.y) / 2 + (vertical ? 0 : 55)));
+    }
+    // finish line
+    const a = path.pts[path.pts.length - 2], b = path.pts[path.pts.length - 1];
+    const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+    const dx = (b.x - a.x) / len, dy = (b.y - a.y) / len, nx = -dy, ny = dx;
+    for (let i = 0; i < 8; i++) {
+      const t0 = -130 + i * 32.5, t1 = t0 + 32.5;
+      ctx.strokeStyle = i % 2 ? c.ink : c.panel;
+      ctx.lineWidth = Math.max(5, 30 * view.scale); ctx.lineCap = 'butt';
+      ctx.beginPath(); ctx.moveTo(sx(b.x + nx * t0), sy(b.y + ny * t0)); ctx.lineTo(sx(b.x + nx * t1), sy(b.y + ny * t1)); ctx.stroke();
+    }
+    ctx.fillStyle = c.ink; ctx.font = '700 13px ' + c.font;
+    ctx.fillText('FINISH', sx(b.x + dx * 150), sy(b.y + dy * 150));
+
+    // trail
+    if (trail.length > 1) {
+      ctx.strokeStyle = c.trail; ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.beginPath();
+      trail.forEach((p, i) => (i ? ctx.lineTo(sx(p.x), sy(p.y)) : ctx.moveTo(sx(p.x), sy(p.y))));
+      ctx.stroke();
+    }
+
+    // rover (its own frame, forward = up)
+    const k = view.scale;
+    ctx.save();
+    ctx.translate(sx(pose.x), sy(pose.y));
+    ctx.rotate(pose.h);
+    ctx.fillStyle = c.ink;
+    ctx.fillRect(-63 * k, -28 * k, 14 * k, 56 * k);
+    ctx.fillRect(49 * k, -28 * k, 14 * k, 56 * k);
+    ctx.fillStyle = c.accent;
+    roundRect(-48 * k, -95 * k, 96 * k, 150 * k, 12 * k); ctx.fill();
+    ctx.fillStyle = c.panel; ctx.strokeStyle = c.ink; ctx.lineWidth = Math.max(1, 3 * k);
+    roundRect(-34 * k, -80 * k, 68 * k, 100 * k, 8 * k); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = c.ink;
+    ctx.beginPath(); ctx.moveTo(0, -72 * k); ctx.lineTo(-14 * k, -48 * k); ctx.lineTo(14 * k, -48 * k); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+  }
+
+  // ---------------------------------------------------------------- output
+  function clearOutput() { terminal.textContent = ''; $('hint').hidden = true; errorLine = null; renderGutter(); }
+  function out(text, cls) {
+    const span = document.createElement('span');
+    if (cls) span.className = cls;
+    span.textContent = text;
+    terminal.appendChild(span);
+    terminal.scrollTop = terminal.scrollHeight;
+    return span;
+  }
+  function showError(err) {
+    const span = out(err.text + '\n', 'err');
+    if (err.line) {
+      span.title = 'Show line ' + err.line;
+      span.addEventListener('click', () => goToLine(err.line));
+      errorLine = err.line;
+      renderGutter();
+    }
+    if (err.hint) {
+      $('hint-title').textContent = 'Hint' + (err.line ? ' (line ' + err.line + '):' : ':');
+      $('hint-text').textContent = err.hint;
+      $('hint').hidden = false;
+    }
+  }
+  function showChip(text, cls) { const chip = $('chip'); chip.textContent = text; chip.className = 'chip ' + cls; chip.hidden = false; }
+
+  // ---------------------------------------------------------------- running
+  function stop() { if (anim) cancelAnimationFrame(anim.raf); anim = null; }
+  function resetRover() { pose = { x: 0, y: 0, h: 0 }; trail = [{ x: 0, y: 0 }]; shownEvents = 0; }
+
+  function run(instant) {
+    stop();
+    clearOutput();
+    $('chip').hidden = true;
+    resetRover();
+    result = Sim.runProgram(code.value, { wiring: 'robot5' });
+    trajectory = [];
+    for (const ev of result.events) {
+      if (ev.type !== 'move') continue;
+      for (let i = 1; i <= 8; i++) trajectory.push(Sim.integrate(ev.from, ev.dl, ev.dr, i / 8));
+    }
+    fitView();
+    if (instant) { step(Infinity); finish(); draw(); return; }
+    anim = { t: 0, last: performance.now(), raf: 0 };
+    anim.raf = requestAnimationFrame(frame);
+  }
+  function frame(now) {
+    if (!anim) return;
+    anim.t += Math.max(0, Math.min(100, now - anim.last));
+    anim.last = now;
+    const done = step(anim.t);
+    draw();
+    if (done) { finish(); anim = null; return; }
+    anim.raf = requestAnimationFrame(frame);
+  }
+  // Apply every event up to time t. Returns true when the program is over.
+  function step(t) {
+    const evs = result.events;
+    while (shownEvents < evs.length) {
+      const ev = evs[shownEvents];
+      if (ev.type === 'print') { if (ev.t > t) break; out(ev.text); shownEvents++; continue; }
+      if (ev.type === 'note') { if (ev.t > t) break; out('[' + ev.text + ']\n', 'note'); shownEvents++; continue; }
+      if (ev.type === 'move') {
+        const f = ev.T > 0 ? Math.min(1, (t - ev.t) / ev.T) : 1;
+        if (f <= 0) break;
+        pose = Sim.integrate(ev.from, ev.dl, ev.dr, f);
+        const last = trail[trail.length - 1];
+        if (Math.hypot(pose.x - last.x, pose.y - last.y) > 4) trail.push({ x: pose.x, y: pose.y });
+        if (f < 1) return false;
+        trail.push({ x: ev.to.x, y: ev.to.y });
+        shownEvents++;
+        continue;
+      }
+      shownEvents++;
+    }
+    if (shownEvents < evs.length) return false;
+    if (result.error && result.error.t > t) return false;
+    return true;
+  }
+  function finish() {
+    if (result.error) {
+      showError(result.error);
+      return;
+    }
+    out('Program finished.\n', 'done');
+    const end = path.pts[path.pts.length - 1];
+    const miss = Math.hypot(pose.x - end.x, pose.y - end.y);
+    if (trail.length > 1) {
+      if (miss <= 80) showChip('Reached the finish!', 'ok');
+      else showChip(Math.round(miss / 10) + ' cm from the finish', 'miss');
+    }
+  }
+
+  $('setup').addEventListener('click', () => {
+    if (!code.value.includes('DriveBase(')) setCode(SETUP + '\n' + code.value.replace(/^\n+/, ''));
+    try { navigator.clipboard.writeText(SETUP).catch(() => {}); } catch (e) { /* clipboard not allowed here */ }
+    code.focus();
+    code.setSelectionRange(code.value.length, code.value.length);
+    code.scrollTop = code.scrollHeight;
+  });
+  $('run').addEventListener('click', () => run());
+  $('stop').addEventListener('click', () => { if (anim) { stop(); out('Stopped.\n', 'done'); } });
+
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', draw);
+  new MutationObserver(draw).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  new ResizeObserver(sizeCanvas).observe($('floor'));
+
+  // ---------------------------------------------------------------- start
+  let saved = null;
+  try { saved = localStorage.getItem(STORE); } catch (e) { /* storage unavailable */ }
+  code.value = saved && saved.trim() ? saved : '';
+  $('planned').classList.add('on');
+  renderGutter();
+  sizeCanvas();
+})();
+</script>
+
+</html>
